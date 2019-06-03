@@ -18,17 +18,11 @@
 package feast.core.grpc;
 
 import com.google.protobuf.Empty;
+import com.google.rpc.BadRequest;
 import com.timgroup.statsd.StatsDClient;
 import feast.core.CoreServiceGrpc.CoreServiceImplBase;
-import feast.core.CoreServiceProto.CoreServiceTypes.ApplyEntityResponse;
-import feast.core.CoreServiceProto.CoreServiceTypes.ApplyFeatureGroupResponse;
-import feast.core.CoreServiceProto.CoreServiceTypes.ApplyFeatureResponse;
-import feast.core.CoreServiceProto.CoreServiceTypes.GetEntitiesRequest;
-import feast.core.CoreServiceProto.CoreServiceTypes.GetEntitiesResponse;
-import feast.core.CoreServiceProto.CoreServiceTypes.GetFeaturesRequest;
-import feast.core.CoreServiceProto.CoreServiceTypes.GetFeaturesResponse;
-import feast.core.CoreServiceProto.CoreServiceTypes.ListEntitiesResponse;
-import feast.core.CoreServiceProto.CoreServiceTypes.ListFeaturesResponse;
+import feast.core.CoreServiceProto;
+import feast.core.CoreServiceProto.CoreServiceTypes.*;
 import feast.core.config.StorageConfig.StorageSpecs;
 import feast.core.exception.RegistrationException;
 import feast.core.exception.RetrievalException;
@@ -40,12 +34,15 @@ import feast.core.validators.SpecValidator;
 import feast.specs.EntitySpecProto.EntitySpec;
 import feast.specs.FeatureGroupSpecProto;
 import feast.specs.FeatureSpecProto.FeatureSpec;
+import feast.specs.StorageSpecProto;
+import feast.specs.StorageSpecProto.StorageSpec;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.flink.queryablestate.network.BadRequestException;
 import org.lognet.springboot.grpc.GRpcService;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -67,6 +64,19 @@ public class CoreServiceImpl extends CoreServiceImplBase {
 
   @Autowired
   private StorageSpecs storageSpecs;
+
+  @Override
+  public void getStorage(CoreServiceProto.CoreServiceTypes.GetStorageRequest request, StreamObserver<GetStorageResponse> responseObserver) {
+    StorageSpec storageSpec;
+    if (request.getIds(0).equalsIgnoreCase("WAREHOUSE")) {
+      responseObserver.onNext(GetStorageResponse.newBuilder().addStorageSpecs(storageSpecs.getWarehouseStorageSpec()).build());
+    } else if (request.getIds(0).equalsIgnoreCase("SERVING")) {
+      responseObserver.onNext(GetStorageResponse.newBuilder().addStorageSpecs(storageSpecs.getServingStorageSpec()).build());
+    } else {
+      responseObserver.onError(Status.INVALID_ARGUMENT.withDescription("storage spec id must be either \"WAREHOUSE\" or \"SERVING\"").asRuntimeException());
+    }
+    responseObserver.onCompleted();
+  }
 
   /**
    * Gets specs for all entities requested in the request. If the retrieval of any one of them
