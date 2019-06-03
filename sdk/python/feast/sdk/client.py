@@ -20,22 +20,23 @@ from datetime import datetime
 
 import grpc
 import pandas as pd
+from google.cloud.storage.client import Client as CloudStorageClient
 from google.protobuf.timestamp_pb2 import Timestamp
 
 from feast.core.CoreService_pb2_grpc import CoreServiceStub
-from feast.core.JobService_pb2 import JobServiceTypes
-from feast.core.JobService_pb2_grpc import JobServiceStub
 from feast.core.DatasetService_pb2 import DatasetServiceTypes
 from feast.core.DatasetService_pb2_grpc import DatasetServiceStub
+from feast.core.JobService_pb2 import JobServiceTypes
+from feast.core.JobService_pb2_grpc import JobServiceStub
 from feast.sdk.env import FEAST_CORE_URL_ENV_KEY, FEAST_SERVING_URL_ENV_KEY
 from feast.sdk.resources.entity import Entity
 from feast.sdk.resources.feature import Feature
 from feast.sdk.resources.feature_group import FeatureGroup
 from feast.sdk.resources.feature_set import DatasetInfo, FileType
 from feast.sdk.resources.storage import Storage
+from feast.sdk.utils import types
 from feast.sdk.utils.bq_util import TableDownloader
 from feast.sdk.utils.print_utils import spec_to_yaml
-from feast.sdk.utils import types
 from feast.serving.Serving_pb2 import QueryFeaturesRequest
 from feast.serving.Serving_pb2_grpc import ServingAPIStub
 
@@ -250,7 +251,7 @@ class Client:
         )
 
     def download_dataset(
-        self, dataset_info, dest, staging_location, file_type=FileType.CSV
+        self, dataset_info, dest, staging_location=None, file_type=FileType.CSV
     ):
         """
         Download training dataset as file
@@ -265,11 +266,14 @@ class Client:
         Returns:
             str: path to the downloaded file
         """
+        if not staging_location:
+            staging_location = self._get_default_staging_location(dataset_info)
+
         return self._table_downloader.download_table_as_file(
             dataset_info.table_id, dest, staging_location, file_type
         )
 
-    def download_dataset_to_df(self, dataset_info, staging_location):
+    def download_dataset_to_df(self, dataset_info, staging_location=None):
         """
         Download training dataset as Pandas Dataframe
         Args:
@@ -281,6 +285,9 @@ class Client:
         Returns: pandas.DataFrame: dataframe of the training dataset
 
         """
+        if not staging_location:
+            staging_location = self._get_default_staging_location(dataset_info)
+
         return self._table_downloader.download_table_as_df(
             dataset_info.table_id, staging_location
         )
@@ -432,6 +439,42 @@ class Client:
 
         if limit is not None and limit < 1:
             raise ValueError("limit is not a positive integer")
+
+    @staticmethod
+    def _get_default_staging_location(
+        dataset_info: DatasetInfo, storage_client: CloudStorageClient = None
+    ) -> str:
+        """Get Google Cloud Storage (GCS) URI for storing temporary files
+
+        The returned GCS URI will be in this format:
+        gs://[feast_warehouse_bigquery_project_id]-staging-location
+
+        Args:
+            dataset_info: dataset_info object
+            storage_client : google cloud storage client
+
+        Returns:
+            str: GCS URI for storing temporary files
+
+        """
+        full_table_id_parts = dataset_info.table_id.split(".")
+
+        if len(full_table_id_parts) != 3:
+            raise ValueError(
+                f'dataset_info contains malformed BigQuery full table id "{dataset_info.table_id}", '
+                f'expected format "[project_id].[dataset_name].[table_name]"'
+            )
+        project_id = full_table_id_parts[0]
+        bucket_name = f"{project_id}-staging-location"
+
+        # Ensure the bucket exists
+        if not storage_client:
+            storage_client = CloudStorageClient()
+        bucket = storage_client.bucket(bucket_name)
+        if not bucket.exists():
+            bucket.create()
+
+        return f"gs://{bucket_name}"
 
 
 def _parse_date(date):
