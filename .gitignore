@@ -3,6 +3,7 @@ scratch*
 
 ### Local Environment ###
 *local*.env
+.env.*.local
 
 ### Secret ###
 **/service_account.json
